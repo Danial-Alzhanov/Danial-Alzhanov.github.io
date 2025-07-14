@@ -1,13 +1,14 @@
 import time
 import random
-import re
+import threading
 
+# Хранилище данных
 users = {}
 session_user = None
-
 cards = {}
 notes = {}
 
+# Регистрация и вход
 def is_valid_password(pw):
     return len(pw) >= 5 and pw.isalnum()
 
@@ -15,7 +16,7 @@ def register():
     global users
     username = input("\nПридумай имя пользователя: ")
     if username in users:
-        print("Имя уже занято. Попробуй другое.")
+        print("Имя уже занято.")
         return
     password = input("Придумай пароль (мин. 5 символов, латиница и цифры): ")
     if not is_valid_password(password):
@@ -36,6 +37,7 @@ def login():
     else:
         print("Неверное имя или пароль.")
 
+# Работа с карточками
 def add_card():
     question = input("\nВведите вопрос: ")
     answer = input("Введите ответ: ")
@@ -52,6 +54,32 @@ def review_card():
     input("Нажмите Enter, чтобы увидеть ответ...")
     print("Ответ:", card['a'])
 
+# Таймер с потоками 
+class InputWithTimeout:
+    def __init__(self, prompt, timeout):
+        self.prompt = prompt
+        self.timeout = timeout
+        self.user_input = None
+        self.input_received = threading.Event()
+
+    def get_input(self):
+        try:
+            self.user_input = input(self.prompt)
+            self.input_received.set()
+        except:
+            pass
+
+    def run(self):
+        thread = threading.Thread(target=self.get_input)
+        thread.daemon = True
+        thread.start()
+        thread.join(self.timeout)
+        if self.input_received.is_set():
+            return self.user_input
+        else:
+            raise TimeoutError
+
+# Викторина
 def quiz():
     user_cards = cards.get(session_user, [])
     if not user_cards:
@@ -60,48 +88,35 @@ def quiz():
     score = 0
     for i, card in enumerate(random.sample(user_cards, len(user_cards))):
         print(f"\nВопрос {i+1}: {card['q']}")
-        start = time.time()
         try:
-            answer = input_with_timeout("Ответ (30 сек): ", 30)
+            answer = InputWithTimeout("Ответ (30 сек): ", 30).run()
         except TimeoutError:
-            print("\nВремя вышло!")
+            print("⏰ Время вышло!")
             continue
         if answer.strip().lower() == card['a'].strip().lower():
-            print("Верно!")
+            print("✅ Верно!")
             score += 1
         else:
-            print(f"Неверно. Правильный ответ: {card['a']}")
-    print(f"\nВикторина окончена. Результат: {score}/{len(user_cards)}")
+            print(f"❌ Неверно. Правильный ответ: {card['a']}")
+    print(f"\nРезультат викторины: {score}/{len(user_cards)}")
 
-def input_with_timeout(prompt, timeout):
-    print(prompt, end='', flush=True)
-    start = time.time()
-    user_input = ''
-    while True:
-        if time.time() - start > timeout:
-            raise TimeoutError
-        if m := input_ready():
-            user_input = input()
-            break
-    return user_input
-
-def input_ready():
-    import sys, select
-    return select.select([sys.stdin], [], [], 0.1)[0]
-
+# Заметки
 def add_note():
-    text = input("\nВведите текст заметки: ")
+    text = input("\nВведите заметку: ")
     notes[session_user].append(text)
     print("Заметка сохранена.")
 
 def view_notes():
+    if not notes[session_user]:
+        print("Нет заметок.")
+        return
     for i, note in enumerate(notes[session_user], 1):
         print(f"{i}. {note}")
 
 def delete_note():
     view_notes()
     try:
-        idx = int(input("Введите номер заметки для удаления: ")) - 1
+        idx = int(input("Номер заметки для удаления: ")) - 1
         if 0 <= idx < len(notes[session_user]):
             notes[session_user].pop(idx)
             print("Заметка удалена.")
@@ -113,7 +128,7 @@ def delete_note():
 def edit_note():
     view_notes()
     try:
-        idx = int(input("Введите номер заметки для редактирования: ")) - 1
+        idx = int(input("Номер заметки для редактирования: ")) - 1
         if 0 <= idx < len(notes[session_user]):
             new_text = input("Новый текст: ")
             notes[session_user][idx] = new_text
@@ -123,10 +138,11 @@ def edit_note():
     except:
         print("Ошибка ввода.")
 
+# Главное меню
 def main_menu():
     while True:
         print("""
-Меню:
+📚 Меню:
 1. Добавить карточку
 2. Повторить карточку
 3. Викторина
@@ -145,10 +161,12 @@ def main_menu():
         elif choice == '6': delete_note()
         elif choice == '7': edit_note()
         elif choice == '0': break
-        else: print("Неверный выбор.")
+        else:
+            print("Неверный выбор.")
 
+# Запуск
 def start():
-    print("Добро пожаловать в StudyApp!")
+    print("📘 Добро пожаловать в StudyApp!")
     while not session_user:
         print("\n1. Регистрация\n2. Вход\n0. Выход")
         choice = input("Выбор: ")
